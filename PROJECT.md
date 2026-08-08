@@ -216,6 +216,39 @@
 ---
 *最后更新：2026-08-08 · 第十七阶段（目标去硬编码+按月按年双维度）完成，node check 语法通过 + playwright e2e 13项全部通过（含占位显示/去硬编码/输入框空/设置目标/4项meta/年-月拆分/零JS错误）；已备份 `*.bak_17` 可回滚*
 
+## ✅ 第十八阶段新增（本轮完成）
+
+| 优先级 | 模块 | 实现 | 完成 |
+|--------|------|------|------|
+| 🎯高 | **💰 资产构成 · 按类型占比环形图** | 数据Tab「分类消费占比」后新增 `#assetDonut` 卡片（卡片底部同步 `#assetDonutTotal` 本金合计 + `#assetDonutInterest` 预计利息两行汇总）；`renderAssetDonut()` 按资产类型（现金/定存/股票/基金）**聚合本金**、统一折成 CNY（复用 `toCny()`），SVG 环形图风格与原「分类消费占比」完全一致 + 图例（色块+类型+占比%+金额）；**零重复算法**——复用现有 `toCny()`/`assetLabel()`/`assetInterest()`/`totalAssets()`；环形中心显本金、底部本金合计用 `--gold-light`、预计利息用 `--green`（复用定存利息逻辑）；空资产显示友好空态；已挂 `renderAll()` 自动刷新 + `window.renderAssetDonut` | ✅ |
+
+---
+*最后更新：2026-08-08 · 第十八阶段（资产构成图）完成，node check 语法通过 + playwright e2e 12项全部通过（含空资产空态/单定存¥100,000年3%366天→图例🏦定存+环形中心¥100,000/利息+3,008.22/加现金¥50,000→定存66.7%现金33.3%占比/本金合计¥150,000/零JS错误）；截图 `shots/asset_donut.png`；已备份 `*.bak_18` 可回滚*
+
+## ✅ 第十九阶段新增（本轮完成）
+
+| 优先级 | 模块 | 实现 | 完成 |
+|--------|------|------|------|
+| 🎯高 | **💰 预算按分类分摊** | 新增 `#catBudgetList` 卡片（记账Tab）：每分类一行「分类图标+名称 + 已用/预算 + 进度条 + 超支/警告态 + [+ 设]/[清除]」；`setCatBudget()`/`clearCatBudget()` 设置/清除单分类预算，读写 `db.catBudget{}` 持久化；`renderCatBudget()` 按当月 `monthExpense()` 分类聚合实耗，进度条 `.cb-fill` 正常态(绿,<=100%)/`warn`(黄,≥80%)/`over`(红超支+「超支 ¥X」)；越界显示友好空态 | ✅ |
+
+---
+*最后更新：2026-08-08 · 第十九阶段（预算按分类分摊）完成，node check 语法通过 + playwright e2e13 13项全部通过（含空态/设置分类预算餐饮500/记账后分类消费核算已用¥100/正常态进度条20%绿/超支态600>500红over+「超支 ¥100」/警告态85%→warn黄/清除分类预算/零JS错误）；截图 `shots/cat_budget.png`；已备份 `*.bak_19_done` 可回滚*
+
+## 近一轮开发记录
+
+### 第十八阶段 · 资产构成图（2026-08-08，1 项任务结束）
+- **改动**：① `index.html` 在「分类消费占比」后新增「💰 资产构成 · 按类型占比」卡片 `#assetDonut` + 底部本金合计 `#assetDonutTotal`/预计利息 `#assetDonutInterest`；② `app.js` 新增 `renderAssetDonut()`（按类型聚合本金折 CNY → SVG 环形图+图例+底部汇总，复用 `toCny`/`assetLabel`/`assetInterest`/`totalAssets` 零重复算法，空资产空态）；③ 接入 `renderAll()`（1411 行调用）+ 挂 `window.renderAssetDonut`（1642 行）。
+- **验证**：`node --check app.js` OK；playwright e2e `e2e_asset_donut.mjs` 12 项全过（空资产→空态提示、单定存 ¥100,000 年3% 366天→图例🏦定存+环形中心 ¥100,000、利息合计 +3,008.22、加现金 ¥50,000→定存 66.7%/现金 33.3% 占比、本金合计 ¥150,000、零 JS 运行时错误），截图存 `shots/asset_donut.png`（已存在）。
+- 注意：待补技术要点（略，沿用 assets 统一折 CNY + 复用资产统计函数即可）。
+
+
+### 第十九阶段 · 预算按分类分摊（2026-08-08，1 项任务结束）
+- **改动**：① `index.html` 记账Tab「分类消费」后新增「💸 预算按分类分摊」卡片 `#catBudgetList`（`#catBudgetTotal` 汇总已设预算笔数）；② `app.js` 新增 `setCatBudget()`/`clearCatBudget()`/`renderCatBudget()`（每分类 icon+名称+已用/预算+进度条，正常态 `.cb-fill` 绿、`.warn` 黄(≥80%)、`.over` 红超支+「超支 ¥X」，读 `monthExpense()` 当月分类实耗 × `db.catBudget{}`）；③ 接入 `renderAll()` + 挂 `window.renderCatBudget`。
+- **🐛 根因 Bug 修复**：`defaultData()`（app.js 第10-27行）**缺少 `catBudget` 字段**，空库本地存储时 `db.catBudget` 为 undefined，`setCatBudget` 里 `db.catBudget[cat]=amt` 抛 `TypeError: Cannot set properties of undefined (setting '餐饮')` 且被 onclick 静默吞掉→预算根本设不进去（之前误判为已完成）。本阶段根因修复：`defaultData()` 增加 `catBudget: {}`；`migrateData()` 既有补丁保留双保险（兼容旧数据）。
+- **验证**：`node --check app.js` OK；playwright e2e `e2e_cat_budget.mjs` 13 项全过（空态/设置分类预算餐饮500/记账后分类消费核算已用¥100/正常态进度条20%绿/超支态600>500红over+「超支 ¥100」/警告态85%→warn黄/清除分类预算/零JS运行时错误），截图存 `shots/cat_budget.png`；测试脚本另修 2 处：无效选择器 `#txTabBook`、用 textContent 查 class 的错误断言（改查 DOM `.cb-fill` 元素存在）。
+- 注意：`.cb-fill` 是 div 的 **class** 不在 textContent 里，e2e 断言进度条须 `page.locator('.cb-fill')` 判断存在，不能用 textContent 去 includes(`cb-fill`)。
+
+
 ## （技术要点备忘补充）第十七阶段注意事项
 - 目标 meta 现为 4 项，`.hero .meta` 有 `flex-wrap:wrap` 已兼容移动端换行；`goalYears`/`goalMonths`/`goalDate` 均为**文本型**（含中文「年/个月」骨架），**不要**加入第十二阶段 `_numEls` 数字滚动清单（`parseNum`/`rollCount` 只处理纯数字，会把「4个月」的 `4` 误滚成乱码）——`goalYears` 仅作普通 textContent 写入即可。
 - 目标名空时 `renderAll` 顶部写 `'🎯 未设置目标'` 占位（用 `(db.goal.name||'').trim()` 判空），不影响 `setGoal`（`if(name)` 才写库，留空则沿用旧值/空名）。

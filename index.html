@@ -892,6 +892,22 @@
   .quick-btn .q-amt { color:var(--gold-light); }
   .quick-btn.quick-add { color:var(--text-dim); font-size:18px; padding:8px 14px; border-style:dashed; }
 
+  /* 快捷模板编辑角标（每个按钮右下角 ✎，可改内置默认模板） */
+  .quick-btn-wrap { position:relative; display:inline-flex; }
+  .quick-btn-wrap .quick-edit {
+    position:absolute; right:-2px; top:-5px;
+    width:18px; height:18px; padding:0; line-height:1;
+    font-size:10px; border-radius:50%;
+    border:1px solid var(--item-border);
+    background:var(--btn-ghost-bg,#2a2a2a);
+    color:var(--gold-light); cursor:pointer;
+    opacity:0; transition:opacity .15s;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .quick-btn-wrap:hover .quick-edit,
+  .quick-btn-wrap .quick-edit:focus { opacity:1; }
+  .quick-btn-wrap .quick-edit:hover { border-color:var(--hero-border); background:#3a3a3a; }
+
   /* ===== 第十二阶段 · 交互动效 ===== */
   /* --- 按钮涟漪水波纹（Material Design）--- */
   .ripple-js {
@@ -1175,6 +1191,36 @@
     0% { transform: translateY(-8px); opacity: 0; }
     100% { transform: translateY(0); opacity: 1; }
   }
+  /* ===== 第十九阶段：分类预算样式 ===== */
+  .cb-row {
+    padding: 7px 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .cb-row:last-child { border-bottom: none; }
+  .cb-head {
+    display: flex; align-items: center; justify-content: space-between;
+    font-size: 13px; font-weight: 600;
+  }
+  .cb-head span:first-child { color: var(--text); }
+  .cb-track {
+    height: 8px; border-radius: 6px;
+    background: var(--track-bg); overflow: hidden; margin: 5px 0 4px;
+  }
+  .cb-fill {
+    height: 100%; border-radius: 6px; transition: width .4s ease;
+    background: linear-gradient(90deg,var(--green),var(--gold-light));
+  }
+  .cb-fill.warn { background: linear-gradient(90deg,#fbbf24,#f59e0b); }
+  .cb-fill.over { background: linear-gradient(90deg,#fb7185,#ef4444); }
+  .cb-sub {
+    font-size: 11px; color: var(--text-dim);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .cb-del {
+    margin-left: auto; cursor: pointer; color: var(--text-dim);
+    font-size: 11px; opacity: .8;
+  }
+  .cb-del:hover { color: var(--danger); opacity: 1; }
   @media (max-width: 600px) {
     .toast-stack { right: 12px; left: 12px; top: 12px; max-width: none; }
     .toast { width: 100%; }
@@ -1416,6 +1462,20 @@
       </div>
       <div id="budgetStatus" class="empty">未设置预算</div>
       <div id="budgetWarn"></div>
+      <!-- 第十九阶段：分类预算（分类独立预算上限 + 进度条 + 超支告警） -->
+      <div class="cb-sec" style="margin-top:10px;padding-top:10px;border-top:1px dashed var(--border);">
+        <div style="font-size:12px;color:var(--text-dim);margin-bottom:6px;">🏷️ 分类预算（可选，为高频分类单独设上限）</div>
+        <div class="form-row">
+          <select id="cbCat" class="flex1">
+            <option>餐饮</option><option>交通</option><option>购物</option>
+            <option>房租</option><option>娱乐</option><option>医疗</option>
+            <option>教育</option><option>其他</option>
+          </select>
+          <input id="cbAmt" type="number" placeholder="分类上限 ¥" style="max-width:92px;">
+          <button class="btn-gold btn-sm" onclick="setCatBudget()">+ 设</button>
+        </div>
+        <div class="list" id="catBudgetList" style="margin-top:6px;max-height:220px;"></div>
+      </div>
       <!-- 第15阶段：预算警报主动化 banner（黄色warn/红色over双态，可手动关闭） -->
       <div class="budget-banner hidden" id="budgetBanner">
         <span class="banner-txt" id="budgetBannerTxt"></span>
@@ -1470,8 +1530,12 @@
     <div class="card">
       <div class="card-title"><span class="ico">🏦</span> 多币种账户（资产）</div>
       <div class="asset-sum">
-        <span>总资产</span>
+        <span>总资产（本金+利息）</span>
         <span class="total" id="assetTotal">¥0</span>
+      </div>
+      <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(97,196,84,.10); border-radius:12px; padding:10px 12px; margin-top:8px;" id="assetBreakdown">
+        <span style="font-size:13px;">💵 本金 <span style="font-weight:800; color:var(--green);" id="assetPrincipal">¥0</span></span>
+        <span style="font-size:13px;">💹 利息 <span style="font-weight:800; color:var(--gold-light);" id="assetInterest">¥0</span></span>
       </div>
       <div style="display:flex; justify-content:space-between; align-items:center; background:rgba(248,113,113,0.08); border:1px solid rgba(248,113,113,.25); border-radius:14px; padding:12px; margin-top:8px;">
         <span style="font-size:13px; color:var(--text-dim);">总负债</span>
@@ -1502,7 +1566,8 @@
       </div>
       <div class="form-row">
         <input id="assetRate" type="number" placeholder="利率/年% (定存)" step="0.01" style="flex:1;">
-        <input id="assetDate" type="text" placeholder="到期日" style="flex:1;">
+        <input id="assetOpen" type="date" placeholder="开户日" style="flex:1;">
+        <input id="assetDue" type="date" placeholder="到期日" style="flex:1;">
       </div>
       <div style="display:flex; gap:10px; align-items:center;">
         <button class="btn-gold btn-sm" onclick="addAsset()">添加账户</button>
@@ -1601,6 +1666,22 @@
     <div class="card">
       <div class="card-title"><span class="ico">🥧</span> 分类消费占比 · 本月</div>
       <div id="donutChart"></div>
+    </div>
+
+    <!-- 第十八阶段：资产构成占比（按类型） -->
+    <div class="card">
+      <div class="card-title"><span class="ico">💰</span> 资产构成 · 按类型占比</div>
+      <div id="assetDonut"></div>
+      <div style="margin-top:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-dim);">
+          <span>本金合计</span>
+          <span id="assetDonutTotal" style="color:var(--gold-light);font-weight:700;"></span>
+        </div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-dim);margin-top:4px;">
+          <span>预计利息</span>
+          <span id="assetDonutInterest" style="color:var(--green);font-weight:700;"></span>
+        </div>
+      </div>
     </div>
 
     <!-- 数据洞察：分类排行 -->

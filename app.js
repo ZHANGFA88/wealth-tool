@@ -14,6 +14,7 @@ function defaultData() {
     tx: [],            // 账本 {id, type, amt, note, cat, date}
     incomes: [],       // 固定收入 {id, type, amt} +增强5: enabled, start(生效年月), end(失效年月)
     budget: 0,         // 每月消费上限
+    catBudget: {},     // 第十九阶段：分类预算 map（分类名 -> 独立预算上限）
     fx: { CNY:1, USD:7.2, HKD:0.92, JPY:0.047, EUR:7.8 }, // 默认汇率对CNY
     assets: [],        // 资产 {id, type, name, cur, amt, rate, due}
     debts: [],         // 负债 {id, name, amt} +增强3: rate(年利率%), monthPay(月还款)
@@ -39,6 +40,8 @@ function migrateData(d){
   ['fx','catIcons'].forEach(function(k){
     if (!d[k] || typeof d[k] !== 'object') d[k] = {};
   });
+  // 第十九阶段：分类预算 map（分类名 -> 独立预算上限），无则补空对象
+  if (!d.catBudget || typeof d.catBudget !== 'object') d.catBudget = {};
   if (!d.goal || typeof d.goal !== 'object') d.goal = {};
   // 确保每条 tx 都有 id（极老数据可能缺），缺则补
   d.tx.forEach(function(t, i){ if (!t.id) t.id = 'mig' + i + '-' + (Date.now()%100000); });
@@ -570,6 +573,57 @@ function setBudget(){
   db.budget = b>=0 ? b : 0;
   save();
 }
+// ---------- 分类预算（第十九阶段）----------
+// 本月某分类消费（复用 monthExpense 同款过滤逻辑）
+function expByCat(cat){
+  return db.tx.filter(t=> t.type==='expense'
+      && t.date.startsWith(thisMonth())
+      && (String(t.cat||'')===String(cat)))
+    .reduce((s,t)=> s+Number(t.amt||0),0);
+}
+// 读取分类预算控件
+function catBudgetInput(id){ return document.getElementById(id).value.trim(); }
+// 新增/更新某分类预算
+function setCatBudget(){
+  const cat = catBudgetInput('cbCat');
+  const amt = parseFloat(catBudgetInput('cbAmt'));
+  if (!cat) { toastError('请选择分类'); return; }
+  if (!(amt>0)) { toastError('预算需大于 0'); return; }
+  db.catBudget[cat] = amt;
+  save();
+  toastSuccess('已设置「'+cat+'」预算 ¥'+amt.toLocaleString());
+}
+// 删除某分类预算
+function delCatBudget(cat){
+  if (!db.catBudget || !(cat in db.catBudget)) return;
+  delete db.catBudget[cat];
+  save();
+  toastInfo('已清除「'+cat+'」预算');
+}
+// 渲染分类预算列表：每个分类一行（emoji+分类名+预算/已用+进度条，超支红）
+function renderCatBudget(){
+  const el = document.getElementById('catBudgetList');
+  if (!el) return;
+  const cb = db.catBudget || {};
+  const cats = Object.keys(cb);
+  if (!cats.length) { el.innerHTML = '<div class="empty">尚未设置分类预算，为高频分类设个上限吧 📊</div>'; return; }
+  const rows = cats.map(cat=>{
+    const limit = +cb[cat] || 0;
+    const used = expByCat(cat);
+    const pct = limit>0 ? Math.min(120, used/limit*100) : 0;
+    const over = used > limit;
+    const warn = !over && limit>0 && pct>=80;
+    const state = over ? 'over' : (warn ? 'warn' : '');
+    const tail = over ? `<span style="color:var(--danger);font-weight:600;">超支 ${fmt(used-limit)}</span>`
+            : (warn ? `<span style="color:#f59e0b;">仅剩 ${fmt(limit-used)}</span>` : `<span style="color:var(--green);">剩 ${fmt(limit-used)}</span>`);
+    return `<div class="cb-row">
+      <div class="cb-head"><span>${getCatIcon(cat)} ${escapeHtml(cat)}</span>${tail}</div>
+      <div class="cb-track"><div class="cb-fill ${state}" style="width:${pct.toFixed(1)}%"></div></div>
+      <div class="cb-sub">预算 ¥${limit.toLocaleString()} · 已用 ¥${used.toLocaleString()} <span class="cb-del" onclick="delCatBudget('${escapeHtml(cat).replace(/'/g,"\\'")}')">✕ 清除</span></div>
+    </div>`;
+  }).join('');
+  el.innerHTML = rows;
+}
 
 // ---------- 资产 ----------
 function addAsset(){
@@ -582,7 +636,8 @@ function addAsset(){
     id:uid(), type, cur, name,
     amt,
     rate: parseFloat(document.getElementById('assetRate').value)||0,
-    due: document.getElementById('assetDate').value.trim()
+    open: document.getElementById('assetOpen').value.trim(),
+    due: document.getElementById('assetDue').value.trim()
   });
   save();
 }
@@ -592,6 +647,30 @@ function saveFx(){
   document.getElementById('fxRate').blur();
   if (rate && rate>0) { db.fx.USD = rate; save(); }
 }
+// 定存储蓄天=（到期日-开户日），返回天数（无效/<=0 返回0）
+function depositDays(open, due){
+  if (!open || !due) return 0;
+  const d1 = new Date(open), d2 = new Date(due);
+  if (isNaN(d1.getTime()) || isNaN(d2.getTime())) return 0;
+  const days = Math.round((d2 - d1) / 86400000);
+  return days > 0 ? days : 0;
+}
+// 单笔定存利息（单利）= 本金(CNY) × 年利率% × 存期天数/365
+function assetInterest(a){
+  if (!a.rate || a.rate<=0) return 0;
+  const days = depositDays(a.open, a.due);
+  if (!days) return 0;
+  return toCny(a.cur, a.amt) * (a.rate/100) * (days/365);
+}
+// 全部资产利息合计（利息）= Σ 各笔定存利息
+function totalInterest(){
+  return db.assets.reduce(function(s,a){ return s + assetInterest(a); }, 0);
+}
+// 全部资产本金合计 = 各笔本金(CNY) 之和（不含利息）
+function totalPrincipal(){
+  return db.assets.reduce(function(s,a){ return s + toCny(a.cur, a.amt); }, 0);
+}
+
 function assetBadge(type){
   return {cash:'badge-cash',deposit:'badge-deposit',stock:'badge-stock',fund:'badge-fund'}[type]||'badge-cash';
 }
@@ -978,6 +1057,63 @@ function renderDonut(){
     </div>`;
 }
 
+// ---------- 第十八阶段：资产构成占比（按类型） ----------
+function renderAssetDonut(){
+  const el = document.getElementById('assetDonut');
+  if (!el) return;
+  if (!(db.assets||[]).length){
+    el.innerHTML = '<div style="color:var(--text-dim);font-size:12px;">暂无资产，先去「资产」Tab 添加</div>';
+    document.getElementById('assetDonutTotal').textContent = '¥0';
+    document.getElementById('assetDonutInterest').textContent = '+¥0';
+    return;
+  }
+  const typeColor = {
+    cash:'#61c454', deposit:'#f5b942', stock:'#5b8ff9', fund:'#9b8afb'
+  };
+  // 按类型聚合本金（统一折 CNY）
+  const map = {};
+  db.assets.forEach(a=>{ map[a.type] = (map[a.type]||0) + toCny(a.cur, a.amt); });
+  const rows = Object.entries(map).map(([type,amt])=>({type,amt}))
+    .sort((a,b)=> b.amt-a.amt);
+  const total = rows.reduce((s,r)=> s + r.amt, 0);
+  // 环形扇形 path
+  const cx=100, cy=100, r=72, sw=30;
+  let acc = 0;
+  const arcs = rows.map(row=>{
+    const frac = total>0 ? row.amt/total : 0;
+    const a0 = acc*2*Math.PI - Math.PI/2;
+    acc += frac;
+    const a1 = acc*2*Math.PI - Math.PI/2;
+    const large = (a1-a0) > Math.PI ? 1 : 0;
+    const x0 = cx + r*Math.cos(a0), y0 = cy + r*Math.sin(a0);
+    const x1 = cx + r*Math.cos(a1), y1 = cy + r*Math.sin(a1);
+    return `<path d="M ${cx} ${cy} L ${x0} ${y0} A ${r} ${r} 0 ${large} 1 ${x1} ${y1} Z" fill="${typeColor[row.type]||'#d0d0d0'}" stroke="var(--bg,#fff)" stroke-width="1.5"/>\n`;
+  }).join('');
+  // 利息合计（仅定存类有）
+  const interest = db.assets.reduce(function(s,a){ return s + assetInterest(a); }, 0);
+  document.getElementById('assetDonutTotal').textContent = fmt(total);
+  document.getElementById('assetDonutInterest').textContent = '+'+fmt(interest).replace('¥','');
+  el.innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;gap:16px;">
+      <svg viewBox="0 0 200 200" style="width:170px;height:170px;">
+        ${arcs}
+        <text x="100" y="100" text-anchor="middle" dominant-baseline="central" fill="var(--gold-light,#f5b942)" font-size="22" font-weight="700">¥${Math.round(total).toLocaleString()}</text>
+        <text x="100" y="124" text-anchor="middle" dominant-baseline="central" fill="var(--text-dim)" font-size="10">资产本金</text>
+      </svg>
+      <div style="display:flex;flex-direction:column;gap:6px;width:100%;">
+        ${rows.map(r=>{
+          const pct = total>0 ? (r.amt/total*100) : 0;
+          return `<div style="display:flex;align-items:center;gap:8px;font-size:12px;">
+            <span style="width:10px;height:10px;border-radius:2px;background:${typeColor[r.type]||'#d0d0d0'};display:inline-block;"></span>
+            <span style="flex:1;">${assetLabel(r.type)}</span>
+            <span style="color:var(--text-dim);">${pct.toFixed(1)}%</span>
+            <span style="font-weight:600;color:var(--gold-light);">¥${Math.round(r.amt).toLocaleString()}</span>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+}
+
 // ---------- 第九阶段：快捷模板 ----------
 // 内置默认快捷模板（用户无自定义时展示；可增删覆盖到 db.quickTpl）
 function defaultQuickTpl(){
@@ -992,8 +1128,15 @@ function defaultQuickTpl(){
 }
 // 合并后的模板列表：优先用户自定义，否则用默认（用 id 区分，default 开头为内置）
 function quickTplList(){
-  const custom = (db.quickTpl||[]).filter(t=> t && !String(t.id||'').startsWith('q-'));
-  const defs = defaultQuickTpl().filter(d=> !(db.quickTpl||[]).some(t=> t && String(t.id)===String(d.id)));
+  const stored = (db.quickTpl||[]).filter(t=> t && t.name);
+  const seen = {};
+  stored.forEach(t=> { if (t.id) seen[t.id] = true; });
+  // 默认模板：若 db.quickTpl 里有同 id（含用户改过的内置模板），则被覆盖，否则用默认
+  const defs = defaultQuickTpl().filter(d=> !seen[d.id]);
+  // 用户自定义：非 q- 前缀的新增项 + 用户改过的内置(q-)项
+  const custom = stored.filter(t=> String(t.id||'').startsWith('q-')
+      ? defaultQuickTpl().some(d=> d.id===t.id)  // 改过的内置模板保留用户版本
+      : true);                                    // 全新自定义项全部保留
   return defs.concat(custom);
 }
 // 一键记账（快捷模板）
@@ -1014,21 +1157,44 @@ function quickAdd(o){
   });
   save();
 }
-// 渲染快捷模板按钮组（记账 Tab 顶部）
+// 渲染快捷模板按钮组（记账 Tab 顶部；每按钮右下角带 ✎ 编辑角标，可改内置默认模板）
 function renderQuickTpl(){
   const el = document.getElementById('quickTpl');
   if (!el) return;
   const list = quickTplList();
   el.innerHTML = list.map(t=>
-    `<button class="quick-btn" onclick="quickTx('${t.id}')" title="${t.name} ${t.amt}元（${t.cat}）">
-       <span class="q-emoji">${t.icon||getCatIcon(t.cat)}</span>
-       <span class="q-name">${escapeHtml(t.name)}</span>
-       <span class="q-amt">¥${t.amt}</span>
-     </button>`
-  ).join('') + `<button class="quick-btn quick-add" onclick="openQuickTplSetup()" title="自定义快捷模板">＋</button>`;
+    `<div class="quick-btn-wrap">
+       <button class="quick-btn" onclick="quickTx('${t.id}')" title="${t.name} ¥${t.amt}（${t.cat}）">
+         <span class="q-emoji">${t.icon||getCatIcon(t.cat)}</span>
+         <span class="q-name">${escapeHtml(t.name)}</span>
+         <span class="q-amt">¥${t.amt}</span>
+       </button>
+       <button class="quick-edit" onclick="openQuickTplSetup('${t.id}')" title="修改该模板">✎</button>
+     </div>`
+  ).join('') + `<button class="quick-btn quick-add" onclick="openQuickTplSetup()" title="新增自定义模板">＋</button>`;
 }
 // 快捷模板：进入设置/新增（用 prompt 快速编辑名称/金额/分类，足够简洁）
-function openQuickTplSetup(){
+// 传 editId 则进入“修改指定模板”模式（内置默认模板也可改，通过同名覆盖写入 db.quickTpl）
+function openQuickTplSetup(editId){
+  // ---- 修改指定模板（内置 / 自定义皆可）----
+  if (editId){
+    let t = (db.quickTpl||[]).find(x=> String(x.id)===String(editId))
+          || defaultQuickTpl().find(x=> String(x.id)===String(editId));
+    if (!t){ toastError('模板不存在'); return; }
+    const name = prompt('模板名称（如：早餐）', t.name||'');
+    if (name===null) return;
+    const amt = parseFloat(prompt('默认金额 ¥（如：8，纯数字）', String(t.amt)));
+    if (!amt || amt<=0){ toastError('金额无效'); return; }
+    const cat = prompt('分类（餐饮/交通/购物/房租/娱乐/医疗/其他）', t.cat||'餐饮') || '餐饮';
+    const icon = prompt('图标 emoji（默认 '+ (t.icon||'🧾') +'）', t.icon||'🧾') || t.icon||'🧾';
+    const upd = { id: editId, name, amt:Number(amt), cat, icon };
+    if (!db.quickTpl) db.quickTpl = [];
+    const i = db.quickTpl.findIndex(x=> String(x.id)===String(editId));
+    if (i>=0) db.quickTpl[i] = upd; else db.quickTpl.push(upd);
+    save();
+    toastShow('✅ 已修改模板「'+name+'」为 ¥'+amt,'success');
+    return;
+  }
   const list = (db.quickTpl||[]).filter(t=> t && !String(t.id||'').startsWith('q-'));
   const names = list.map(t=> `${escapeHtml(t.name)}（¥${t.amt}/${t.cat}）`).join('\n');
   const menu = '当前自定义模板：\n' + (names || '（无，使用内置默认）') + '\n\n' +
@@ -1296,6 +1462,7 @@ function renderAll(){
   renderCatRanking();
   renderTopSpending();
   renderDonut();
+  renderAssetDonut();   // 第十八阶段：资产构成占比
   renderYearSummary();
   renderMonthCompare();      // 第五阶段：月度对比
   renderNetTrend();          // 第五阶段：净资产增长趋势
@@ -1324,6 +1491,7 @@ function renderAll(){
 
   // 预算
   const bw = document.getElementById('budgetWarn');
+  if (typeof renderCatBudget === 'function') renderCatBudget();
   if (db.budget > 0) {
     const remain = db.budget - exp;
     const pct = db.budget>0 ? exp/db.budget*100 : 100;
@@ -1344,17 +1512,26 @@ function renderAll(){
   }
 
   // 资产
-  document.getElementById('assetTotal').textContent = fmt(totalAssets());
+  const _totalInt = totalInterest();
+  document.getElementById('assetTotal').textContent = fmt(totalAssets() + _totalInt);
+  document.getElementById('assetPrincipal').textContent = fmt(totalAssets());
+  document.getElementById('assetInterest').textContent = fmt(_totalInt);
   document.getElementById('debtTotal').textContent = fmt(totalDebts());
   document.getElementById('netAsset').textContent = fmt(netAssets());
   document.getElementById('assetList').innerHTML = db.assets.length ? db.assets.map(a=>{
-    const rates = a.rate ? `<div class="meta">利率 ${a.rate}%/年 ${a.due?'· 到期 '+a.due:''}</div>` : (a.due?`<div class="meta">到期 ${a.due}</div>`:'');
+    const intAmt = assetInterest(a);
+    const rates = [];
+    if (a.rate) rates.push(`利率 ${a.rate}%/年`);
+    if (a.open) rates.push(`开户 ${a.open}`);
+    if (a.due) rates.push(`到期 ${a.due}`);
+    if (intAmt>0) rates.push(`<span style="color:var(--gold-light);font-weight:700;">利息 +${fmt(intAmt).replace('¥','')}</span>`);
+    const ratesHtml = rates.length ? `<div class="meta">${rates.join(' · ')}</div>` : '';
     return `<div class="asset-card">
       <span class="type-badge ${assetBadge(a.type)}">${assetLabel(a.type)} · ${a.cur}</span>
       <div class="name" style="font-weight:600;">${a.name}</div>
       <div class="val">${curSymbol(a.cur)}${Number(a.amt).toLocaleString()}</div>
       <div class="meta">≈ ${fmt(toCny(a.cur,a.amt))}</div>
-      ${rates}
+      ${ratesHtml}
       <button class="del" onclick="delAsset('${a.id}')">✕ 删除</button>
     </div>`;
   }).join('') : '<div class="empty">暂无资产账户，添加一个吧</div>';
@@ -1502,6 +1679,10 @@ window.delTx = delTx;
 window.addIncome = addIncome;
 window.delIncome = delIncome;
 window.setBudget = setBudget;
+window.expByCat = expByCat;
+window.setCatBudget = setCatBudget;
+window.delCatBudget = delCatBudget;
+window.renderCatBudget = renderCatBudget;
 window.saveFx = saveFx;
 window.addDebt = addDebt;
 window.delDebt = delDebt;
@@ -1517,6 +1698,7 @@ window.pickEmoji = pickEmoji;
 window.escapeHtml = escapeHtml;   // 第五阶段修复：全局暴露
 window.renderMonthCompare = renderMonthCompare;   // 第五阶段
 window.renderNetTrend = renderNetTrend;           // 第五阶段
+window.renderAssetDonut = renderAssetDonut;       // 第十八阶段
 
 // ---------- 底部 Tab 切换 ----------
 function moveTabSlider(){
@@ -1872,7 +2054,7 @@ document.addEventListener('DOMContentLoaded', function(){
   }
   var NUM_IDS2 = [
     'goalProgressNum','goalPaid','goalTotal','goalNeed','mIncome','mExpense','mNet',
-    'assetTotal','debtTotal','netAsset'
+    'assetTotal','assetPrincipal','assetInterest','debtTotal','netAsset'
   ];
   var numEls = [];
   NUM_IDS2.forEach(function (id) { var e = document.getElementById(id); if (e) numEls.push(e); });
