@@ -1,0 +1,57 @@
+{
+  "name": "我的财库 · 攒钱理财管家",
+  "short_name": "我的财库",
+  "description": "个人记账、攒钱目标、预算管理、资产负债一站式理财管家",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#d4af37",
+  "orientation": "portrait-primary",
+  "lang": "zh-CN",
+  "categories": ["finance", "productivity", "utilities"],
+  "icons": [
+    {
+      "src": "data:image/svg+xml;utf8,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20512%20512'%3E%3Crect%20width='512'%20height='512'%20rx='96'%20fill='%230f172a'/%3E%3Ctext%20x='256'%20y='300'%20font-size='280'%20text-anchor='middle'%20dominant-baseline='middle'%3E%F0%9F%A9%B9%3C/text%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml;utf8,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20512%20512'%3E%3Crect%20width='512'%20height='512'%20rx='96'%20fill='%230f172a'/%3E%3Ctext%20x='256'%20y='300'%20font-size='280'%20text-anchor='middle'%20dominant-baseline='middle'%3E%F0%9F%A9%B9%3C/text%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml;utf8,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20512%20512'%3E%3Crect%20width='512'%20height='512'%20rx='96'%20fill='%230f172a'/%3E%3Ctext%20x='256'%20y='300'%20font-size='280'%20text-anchor='middle'%20dominant-baseline='middle'%3E%F0%9F%A9%B9%3C/text%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "随手记账",
+      "short_name": "记账",
+      "url": "./index.html?tab=book",
+      "icons": [
+        {
+          "src": "data:image/svg+xml;utf8,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20512%20512'%3E%3Crect%20width='512'%20height='512'%20rx='96'%20fill='%230f172a'/%3E%3Ctext%20x='256'%20y='300'%20font-size='280'%20text-anchor='middle'%20dominant-baseline='middle'%3E%F0%9F%92%B8%3C/text%3E%3C/svg%3E",
+          "sizes": "192x192"
+        }
+      ]
+    },
+    {
+      "name": "数据看板",
+      "short_name": "数据",
+      "url": "./index.html?tab=data",
+      "icons": [
+        {
+          "src": "data:image/svg+xml;utf8,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%20512%20512'%3E%3Crect%20width='512'%20height='512'%20rx='96'%20fill='%230f172a'/%3E%3Ctext%20x='256'%20y='300'%20font-size='280'%20text-anchor='middle'%20dominant-baseline='middle'%3E%F0%9F%93%8A%3C/text%3E%3C/svg%3E",
+          "sizes": "192x192"
+        }
+      ]
+    }
+  ]
+}

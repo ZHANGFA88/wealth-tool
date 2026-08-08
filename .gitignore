@@ -1,0 +1,6 @@
+# 回滚备份（内部文件，不上传）
+*.bak*
+*.bak_*
+e2e*.mjs
+shot*.mjs
+shots/
